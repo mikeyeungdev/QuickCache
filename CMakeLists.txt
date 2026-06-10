@@ -6,8 +6,13 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MSVC)
+    add_compile_options(/EHsc)
+endif()
+
 add_library(quickcache_core
     src/cache.cpp
+    src/parser.cpp
 )
 
 target_include_directories(quickcache_core PUBLIC include)
@@ -21,3 +26,8 @@ add_executable(cache_tests tests/cache_test.cpp)
 target_link_libraries(cache_tests PRIVATE quickcache_core)
 
 add_test(NAME cache_tests COMMAND cache_tests)
+
+add_executable(parser_tests tests/parser_test.cpp)
+target_link_libraries(parser_tests PRIVATE quickcache_core)
+
+add_test(NAME parser_tests COMMAND parser_tests)
