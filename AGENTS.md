@@ -42,14 +42,18 @@ On Windows with multi-configuration generators:
 
 ## Test
 
-No automated tests are implemented yet. When tests are added, prefer CTest-compatible commands:
-
 ```bash
 ctest --output-on-failure
 ```
 
+On Windows with Visual Studio generators:
+
+```powershell
+ctest -C Debug --output-on-failure
+```
+
 ## Notes
 
-- Do not implement cache logic until the task explicitly asks for it.
 - Keep future implementation changes scoped to the requested task.
 - Prefer readable C++17 and simple CMake targets.
+- Keep cache logic independent from networking and command parsing.

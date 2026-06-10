@@ -1,3 +1,0 @@
-C:/Users/Mike Yeung/Desktop/2026projects/QuickCache/build/CMakeFiles/quickcache.dir
-C:/Users/Mike Yeung/Desktop/2026projects/QuickCache/build/CMakeFiles/ALL_BUILD.dir
-C:/Users/Mike Yeung/Desktop/2026projects/QuickCache/build/CMakeFiles/ZERO_CHECK.dir
