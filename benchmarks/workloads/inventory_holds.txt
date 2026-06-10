@@ -1,0 +1,9 @@
+# Inventory hold workload
+SET hold:item456:user001 reserved EX 600
+GET hold:item456:user001
+SET hold:item456:user002 reserved EX 600
+DELETE hold:item456:user001
+GET hold:item456:user001
+TTL hold:item456:user002
+PING
+STATS

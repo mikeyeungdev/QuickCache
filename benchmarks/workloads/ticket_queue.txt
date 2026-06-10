@@ -1,0 +1,9 @@
+# Ticket queue workload
+SET queue:user001 482 EX 1800
+GET queue:user001
+SET queue:user002 483 EX 1800
+GET queue:user002
+EXPIRE queue:user001 900
+TTL queue:user001
+PING
+STATS

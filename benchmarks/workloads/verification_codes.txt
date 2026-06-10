@@ -1,0 +1,9 @@
+# Verification code workload
+SET code:user001 849201 EX 300
+GET code:user001
+TTL code:user001
+SET code:user002 492010 EX 300
+GET code:user002
+DELETE code:user002
+PING
+STATS
