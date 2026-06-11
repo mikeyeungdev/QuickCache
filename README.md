@@ -21,6 +21,7 @@ The local cache engine currently supports:
 - `expire(key, ttl_seconds)` for updating a key's expiration
 - `ttl(key)` for reading the remaining lifetime
 - `cleanupExpired()` for removing expired keys in a batch
+- LRU eviction when the cache reaches its max key limit
 
 Example behavior covered by tests:
 
@@ -43,6 +44,19 @@ GET code:user123
 
 GET code:user123
 # returns NOT_FOUND
+```
+
+LRU eviction example:
+
+```text
+# max keys = 2
+SET a 1
+SET b 2
+GET a
+SET c 3
+
+# a and c remain because a was recently read
+# b is evicted as the least recently used key
 ```
 
 ## Planned Commands

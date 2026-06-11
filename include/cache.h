@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <list>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -15,6 +16,8 @@ enum class CacheStatus {
 
 class Cache {
 public:
+    explicit Cache(std::size_t max_keys = 1000);
+
     CacheStatus set(const std::string& key, const std::string& value);
     CacheStatus set(const std::string& key, const std::string& value, int ttl_seconds);
     std::optional<std::string> get(const std::string& key);
@@ -30,12 +33,18 @@ private:
     struct Entry {
         std::string value;
         std::optional<Clock::time_point> expires_at;
+        std::list<std::string>::iterator lru_position;
     };
 
     static bool isValidTtl(int ttl_seconds);
     bool isExpired(const Entry& entry, Clock::time_point now) const;
     std::optional<Clock::time_point> expirationFromNow(int ttl_seconds) const;
+    void touch(std::unordered_map<std::string, Entry>::iterator entry);
+    void eraseEntry(std::unordered_map<std::string, Entry>::iterator entry);
+    void evictIfNeeded();
 
+    std::size_t max_keys_;
+    std::list<std::string> lru_order_;
     std::unordered_map<std::string, Entry> entries_;
 };
 
