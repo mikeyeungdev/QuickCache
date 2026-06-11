@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -15,12 +16,27 @@ enum class CacheStatus {
 class Cache {
 public:
     CacheStatus set(const std::string& key, const std::string& value);
-    std::optional<std::string> get(const std::string& key) const;
+    CacheStatus set(const std::string& key, const std::string& value, int ttl_seconds);
+    std::optional<std::string> get(const std::string& key);
     CacheStatus remove(const std::string& key);
+    CacheStatus expire(const std::string& key, int ttl_seconds);
+    std::optional<int> ttl(const std::string& key);
+    std::size_t cleanupExpired();
     std::size_t size() const;
 
 private:
-    std::unordered_map<std::string, std::string> entries_;
+    using Clock = std::chrono::steady_clock;
+
+    struct Entry {
+        std::string value;
+        std::optional<Clock::time_point> expires_at;
+    };
+
+    static bool isValidTtl(int ttl_seconds);
+    bool isExpired(const Entry& entry, Clock::time_point now) const;
+    std::optional<Clock::time_point> expirationFromNow(int ttl_seconds) const;
+
+    std::unordered_map<std::string, Entry> entries_;
 };
 
 } // namespace quickcache

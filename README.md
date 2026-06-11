@@ -15,8 +15,12 @@ Short-lived backend data often lives on critical user paths. Ticket queue positi
 The local cache engine currently supports:
 
 - `set(key, value)` for string keys and string values
+- `set(key, value, ttl_seconds)` for values that should expire automatically
 - `get(key)` returning the stored value or no value when the key is missing
 - `remove(key)` returning `Ok` when a key was deleted and `NotFound` when it was absent
+- `expire(key, ttl_seconds)` for updating a key's expiration
+- `ttl(key)` for reading the remaining lifetime
+- `cleanupExpired()` for removing expired keys in a batch
 
 Example behavior covered by tests:
 
@@ -27,6 +31,19 @@ DELETE code:user123
 ```
 
 This is a local C++ API only. TCP networking and command parsing are planned for later tasks.
+
+TTL example:
+
+```text
+SET code:user123 849201 EX 3
+GET code:user123
+# returns 849201
+
+# wait 4 seconds
+
+GET code:user123
+# returns NOT_FOUND
+```
 
 ## Planned Commands
 
@@ -79,4 +96,4 @@ On Windows with multi-configuration generators, run:
 
 ## Current Status
 
-The core in-memory cache engine is implemented. TCP networking, command parsing, TTL expiration, persistence, and benchmarks are planned for later tasks.
+The core in-memory cache engine and command parser are implemented. TCP networking, persistence, and benchmarks are planned for later tasks.
