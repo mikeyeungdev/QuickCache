@@ -116,13 +116,13 @@ ctest -C Debug --output-on-failure
 From the build directory:
 
 ```bash
-./quickcache --port 6379 --max-keys 1000
+./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
 ```
 
 On Windows with multi-configuration generators, run:
 
 ```powershell
-.\Debug\quickcache.exe --port 6379 --max-keys 1000
+.\Debug\quickcache.exe --port 6379 --max-keys 1000 --aof quickcache.aof
 ```
 
 ## TCP Usage
@@ -130,7 +130,7 @@ On Windows with multi-configuration generators, run:
 Start the server:
 
 ```bash
-./quickcache --port 6379 --max-keys 1000
+./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
 ```
 
 Connect with netcat:
@@ -177,6 +177,53 @@ On Windows, use the Python launcher if needed:
 py .\benchmarks\concurrency_client.py --clients 8 --operations 100
 ```
 
+## Append-Only Persistence
+
+QuickCache can append successful write commands to an append-only log file:
+
+```bash
+./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
+```
+
+If `--aof` is omitted, QuickCache uses `quickcache.aof` by default:
+
+```bash
+./quickcache
+```
+
+is equivalent to:
+
+```bash
+./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
+```
+
+The server writes these operations to the log:
+
+```text
+SET key value
+SET key value EX seconds
+DELETE key
+EXPIRE key seconds
+```
+
+On startup, QuickCache replays the log before accepting clients, rebuilding in-memory state after a crash or restart. Replay does not re-append commands, so recovery does not duplicate the log.
+
+TTL-bearing writes are stored with absolute expiration timestamps internally, such as `EXAT <epoch_seconds>` and `EXPIREAT <epoch_seconds>`. This avoids resetting TTL on restart. For example, a verification code that expired while the server was offline is skipped during replay instead of coming back with a fresh lifetime.
+
+To start with an empty cache, stop the server and either delete the AOF file or use a new filename:
+
+```bash
+rm quickcache.aof
+./quickcache --aof fresh-session.aof
+```
+
+On Windows:
+
+```powershell
+Remove-Item .\quickcache.aof
+.\Debug\quickcache.exe --aof fresh-session.aof
+```
+
 ## Current Status
 
-The core in-memory cache engine, command parser, TTL expiration, LRU eviction, and multithreaded TCP server are implemented. Persistence and deeper benchmarks are planned for later tasks.
+The core in-memory cache engine, command parser, TTL expiration, LRU eviction, multithreaded TCP server, and append-only persistence are implemented. Deeper benchmarks are planned for later tasks.

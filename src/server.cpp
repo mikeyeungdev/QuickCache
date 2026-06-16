@@ -40,7 +40,8 @@ NativeSocket nativeSocket(SocketHandle socket) {
 
 } // namespace
 
-Server::Server(Cache& cache, int port) : cache_(cache), port_(port) {}
+Server::Server(Cache& cache, AppendOnlyLog* append_only_log, int port)
+    : cache_(cache), append_only_log_(append_only_log), port_(port) {}
 
 void Server::run() {
 #ifdef _WIN32
@@ -128,17 +129,32 @@ std::string Server::execute(const Command& command) {
         const auto status = command.ttl_seconds.has_value()
             ? cache_.set(command.key, command.value, command.ttl_seconds.value())
             : cache_.set(command.key, command.value);
+        if (status == CacheStatus::Ok && append_only_log_ != nullptr) {
+            if (command.ttl_seconds.has_value()) {
+                append_only_log_->appendSet(command.key, command.value, command.ttl_seconds.value());
+            } else {
+                append_only_log_->appendSet(command.key, command.value);
+            }
+        }
         return status == CacheStatus::Ok ? "OK" : "ERROR failed to set key";
     }
     case CommandType::Get: {
         const auto value = cache_.get(command.key);
         return value.has_value() ? "VALUE " + value.value() : "NOT_FOUND";
     }
-    case CommandType::Delete:
-        return cache_.remove(command.key) == CacheStatus::Ok ? "OK" : "NOT_FOUND";
+    case CommandType::Delete: {
+        const auto status = cache_.remove(command.key);
+        if (status == CacheStatus::Ok && append_only_log_ != nullptr) {
+            append_only_log_->appendDelete(command.key);
+        }
+        return status == CacheStatus::Ok ? "OK" : "NOT_FOUND";
+    }
     case CommandType::Expire: {
         const auto status = cache_.expire(command.key, command.ttl_seconds.value());
         if (status == CacheStatus::Ok) {
+            if (append_only_log_ != nullptr) {
+                append_only_log_->appendExpire(command.key, command.ttl_seconds.value());
+            }
             return "OK";
         }
         return status == CacheStatus::NotFound ? "NOT_FOUND" : "ERROR failed to expire key";

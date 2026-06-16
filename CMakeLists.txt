@@ -13,6 +13,7 @@ endif()
 add_library(quickcache_core
     src/cache.cpp
     src/parser.cpp
+    src/persistence.cpp
     src/server.cpp
 )
 
@@ -36,3 +37,8 @@ add_executable(parser_tests tests/parser_test.cpp)
 target_link_libraries(parser_tests PRIVATE quickcache_core)
 
 add_test(NAME parser_tests COMMAND parser_tests)
+
+add_executable(persistence_tests tests/persistence_test.cpp)
+target_link_libraries(persistence_tests PRIVATE quickcache_core)
+
+add_test(NAME persistence_tests COMMAND persistence_tests)

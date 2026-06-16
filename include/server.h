@@ -4,6 +4,7 @@
 #include <string>
 
 #include "cache.h"
+#include "persistence.h"
 #include "parser.h"
 
 namespace quickcache {
@@ -17,7 +18,7 @@ using SocketHandle =
 
 class Server {
 public:
-    Server(Cache& cache, int port = 6379);
+    Server(Cache& cache, AppendOnlyLog* append_only_log = nullptr, int port = 6379);
     void run();
 
 private:
@@ -26,6 +27,7 @@ private:
     bool sendLine(SocketHandle client_socket, const std::string& line);
 
     Cache& cache_;
+    AppendOnlyLog* append_only_log_;
     int port_;
     Parser parser_;
 };
