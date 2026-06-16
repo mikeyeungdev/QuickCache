@@ -15,8 +15,13 @@ Short-lived backend data often lives on critical user paths. Ticket queue positi
 The local cache engine currently supports:
 
 - `set(key, value)` for string keys and string values
+- `set(key, value, ttl_seconds)` for values that should expire automatically
 - `get(key)` returning the stored value or no value when the key is missing
 - `remove(key)` returning `Ok` when a key was deleted and `NotFound` when it was absent
+- `expire(key, ttl_seconds)` for updating a key's expiration
+- `ttl(key)` for reading the remaining lifetime
+- `cleanupExpired()` for removing expired keys in a batch
+- LRU eviction when the cache reaches its max key limit
 
 Example behavior covered by tests:
 
@@ -26,7 +31,33 @@ GET code:user123
 DELETE code:user123
 ```
 
-This is a local C++ API only. TCP networking and command parsing are planned for later tasks.
+QuickCache now exposes these commands over a newline-delimited TCP protocol.
+
+TTL example:
+
+```text
+SET code:user123 849201 EX 3
+GET code:user123
+# returns 849201
+
+# wait 4 seconds
+
+GET code:user123
+# returns NOT_FOUND
+```
+
+LRU eviction example:
+
+```text
+# max keys = 2
+SET a 1
+SET b 2
+GET a
+SET c 3
+
+# a and c remain because a was recently read
+# b is evicted as the least recently used key
+```
 
 ## Planned Commands
 
@@ -85,15 +116,51 @@ ctest -C Debug --output-on-failure
 From the build directory:
 
 ```bash
-./quickcache
+./quickcache --port 6379 --max-keys 1000
 ```
 
 On Windows with multi-configuration generators, run:
 
 ```powershell
-.\Debug\quickcache.exe
+.\Debug\quickcache.exe --port 6379 --max-keys 1000
+```
+
+## TCP Usage
+
+Start the server:
+
+```bash
+./quickcache --port 6379 --max-keys 1000
+```
+
+Connect with netcat:
+
+```bash
+nc localhost 6379
+```
+
+Try:
+
+```text
+PING
+SET code:user123 849201 EX 300
+GET code:user123
+TTL code:user123
+DELETE code:user123
+GET code:user123
+```
+
+Example responses:
+
+```text
+PONG
+OK
+VALUE 849201
+TTL 299
+OK
+NOT_FOUND
 ```
 
 ## Current Status
 
-The core in-memory cache engine is implemented. TCP networking, command parsing, TTL expiration, persistence, and benchmarks are planned for later tasks.
+The core in-memory cache engine, command parser, TTL expiration, LRU eviction, and single-client TCP server are implemented. Persistence, multi-client concurrency, and benchmarks are planned for later tasks.

@@ -84,6 +84,7 @@ void test_valid_expire_ttl_and_stats() {
     const auto expire = parser.parse("EXPIRE code:user123 300");
     assert(expire.type == quickcache::CommandType::Expire);
     assert(expire.key == "code:user123");
+    assert(expire.ttl_seconds.has_value());
     assert(expire.ttl_seconds.value() == 300);
 
     const auto ttl = parser.parse("TTL code:user123");

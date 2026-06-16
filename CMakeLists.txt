@@ -13,9 +13,14 @@ endif()
 add_library(quickcache_core
     src/cache.cpp
     src/parser.cpp
+    src/server.cpp
 )
 
 target_include_directories(quickcache_core PUBLIC include)
+
+if(WIN32)
+    target_link_libraries(quickcache_core PUBLIC ws2_32)
+endif()
 
 add_executable(quickcache src/main.cpp)
 target_link_libraries(quickcache PRIVATE quickcache_core)
