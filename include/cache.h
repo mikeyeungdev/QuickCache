@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <list>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -42,10 +43,12 @@ private:
     void touch(std::unordered_map<std::string, Entry>::iterator entry);
     void eraseEntry(std::unordered_map<std::string, Entry>::iterator entry);
     void evictIfNeeded();
+    std::size_t cleanupExpiredUnlocked();
 
     std::size_t max_keys_;
     std::list<std::string> lru_order_;
     std::unordered_map<std::string, Entry> entries_;
+    mutable std::mutex mutex_;
 };
 
 } // namespace quickcache

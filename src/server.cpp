@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -81,8 +82,10 @@ void Server::run() {
             continue;
         }
 
-        handleClient(client_socket);
-        closeSocket(client_socket);
+        std::thread([this, client_socket]() {
+            handleClient(client_socket);
+            closeSocket(client_socket);
+        }).detach();
     }
 }
 

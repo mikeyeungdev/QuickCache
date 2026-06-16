@@ -161,6 +161,22 @@ OK
 NOT_FOUND
 ```
 
+## Concurrent Clients
+
+The TCP server handles multiple clients with one thread per connected client. Cache operations are protected by an internal mutex so shared state remains safe across concurrent `GET`, `SET`, `DELETE`, `EXPIRE`, `TTL`, and `STATS` calls.
+
+Run the concurrency smoke client while the server is running:
+
+```bash
+python benchmarks/concurrency_client.py --clients 8 --operations 100
+```
+
+On Windows, use the Python launcher if needed:
+
+```powershell
+py .\benchmarks\concurrency_client.py --clients 8 --operations 100
+```
+
 ## Current Status
 
-The core in-memory cache engine, command parser, TTL expiration, LRU eviction, and single-client TCP server are implemented. Persistence, multi-client concurrency, and benchmarks are planned for later tasks.
+The core in-memory cache engine, command parser, TTL expiration, LRU eviction, and multithreaded TCP server are implemented. Persistence and deeper benchmarks are planned for later tasks.
