@@ -33,9 +33,11 @@ std::optional<int> parseTtlSeconds(const std::string& token) {
     try {
         std::size_t parsed_chars = 0;
         const int ttl = std::stoi(token, &parsed_chars);
+
         if (parsed_chars != token.size() || ttl < 0) {
             return std::nullopt;
         }
+
         return ttl;
     } catch (const std::exception&) {
         return std::nullopt;
@@ -56,7 +58,7 @@ Command Parser::parse(const std::string& line) const {
         return invalidCommand("empty command");
     }
 
-    const auto command_name = uppercase(tokens[0]);
+    const std::string command_name = uppercase(tokens[0]);
 
     if (command_name == "PING") {
         if (tokens.size() != 1) {
@@ -74,6 +76,10 @@ Command Parser::parse(const std::string& line) const {
         command.type = CommandType::Set;
         command.key = tokens[1];
         command.value = tokens[2];
+
+        if (command.key.empty()) {
+            return invalidCommand("SET requires a key");
+        }
 
         if (tokens.size() == 5) {
             if (uppercase(tokens[3]) != "EX") {

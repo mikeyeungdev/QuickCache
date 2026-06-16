@@ -69,6 +69,23 @@ SET c 3
 - `TTL`
 - `STATS`
 
+## Supported Command Syntax
+
+QuickCache now includes a local parser for newline-delimited text commands. The parser turns command text into structured command objects; it does not execute commands or use networking yet.
+
+```text
+PING
+SET key value
+SET key value EX seconds
+GET key
+DELETE key
+EXPIRE key seconds
+TTL key
+STATS
+```
+
+Malformed commands return parse errors instead of crashing. Examples include missing keys, invalid TTL values, unsupported `SET` options, extra arguments, and unknown commands.
+
 ## Build
 
 From the repository root:
