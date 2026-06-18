@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -39,7 +40,8 @@ NativeSocket nativeSocket(SocketHandle socket) {
 
 } // namespace
 
-Server::Server(Cache& cache, int port) : cache_(cache), port_(port) {}
+Server::Server(Cache& cache, RuntimeStats& stats, AppendOnlyLog* append_only_log, int port)
+    : cache_(cache), stats_(stats), append_only_log_(append_only_log), port_(port) {}
 
 void Server::run() {
 #ifdef _WIN32
@@ -81,8 +83,10 @@ void Server::run() {
             continue;
         }
 
-        handleClient(client_socket);
-        closeSocket(client_socket);
+        std::thread([this, client_socket]() {
+            handleClient(client_socket);
+            closeSocket(client_socket);
+        }).detach();
     }
 }
 
@@ -114,6 +118,8 @@ void Server::handleClient(SocketHandle client_socket) {
 }
 
 std::string Server::execute(const Command& command) {
+    stats_.recordCommand();
+
     if (command.type == CommandType::Invalid) {
         return "ERROR " + command.error;
     }
@@ -125,17 +131,32 @@ std::string Server::execute(const Command& command) {
         const auto status = command.ttl_seconds.has_value()
             ? cache_.set(command.key, command.value, command.ttl_seconds.value())
             : cache_.set(command.key, command.value);
+        if (status == CacheStatus::Ok && append_only_log_ != nullptr) {
+            if (command.ttl_seconds.has_value()) {
+                append_only_log_->appendSet(command.key, command.value, command.ttl_seconds.value());
+            } else {
+                append_only_log_->appendSet(command.key, command.value);
+            }
+        }
         return status == CacheStatus::Ok ? "OK" : "ERROR failed to set key";
     }
     case CommandType::Get: {
         const auto value = cache_.get(command.key);
         return value.has_value() ? "VALUE " + value.value() : "NOT_FOUND";
     }
-    case CommandType::Delete:
-        return cache_.remove(command.key) == CacheStatus::Ok ? "OK" : "NOT_FOUND";
+    case CommandType::Delete: {
+        const auto status = cache_.remove(command.key);
+        if (status == CacheStatus::Ok && append_only_log_ != nullptr) {
+            append_only_log_->appendDelete(command.key);
+        }
+        return status == CacheStatus::Ok ? "OK" : "NOT_FOUND";
+    }
     case CommandType::Expire: {
         const auto status = cache_.expire(command.key, command.ttl_seconds.value());
         if (status == CacheStatus::Ok) {
+            if (append_only_log_ != nullptr) {
+                append_only_log_->appendExpire(command.key, command.ttl_seconds.value());
+            }
             return "OK";
         }
         return status == CacheStatus::NotFound ? "NOT_FOUND" : "ERROR failed to expire key";
@@ -152,8 +173,17 @@ std::string Server::execute(const Command& command) {
         return "NOT_FOUND";
     }
     case CommandType::Stats: {
+        const auto snapshot = stats_.snapshot(cache_.size(), cache_.approximateMemoryUsage());
         std::ostringstream output;
-        output << "OK keys=" << cache_.size();
+        output << "OK"
+               << " total_keys=" << snapshot.total_keys
+               << " expired_keys_removed=" << snapshot.expired_keys_removed
+               << " evicted_keys=" << snapshot.evicted_keys
+               << " total_commands=" << snapshot.total_commands
+               << " get_hits=" << snapshot.get_hits
+               << " get_misses=" << snapshot.get_misses
+               << " uptime_seconds=" << snapshot.uptime_seconds
+               << " approximate_memory_bytes=" << snapshot.approximate_memory_bytes;
         return output.str();
     }
     case CommandType::Invalid:

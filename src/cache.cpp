@@ -1,15 +1,19 @@
 #include "cache.h"
 
 #include <algorithm>
+#include <mutex>
 
 namespace quickcache {
 
-Cache::Cache(std::size_t max_keys) : max_keys_(std::max<std::size_t>(1, max_keys)) {}
+Cache::Cache(std::size_t max_keys, RuntimeStats* stats)
+    : max_keys_(std::max<std::size_t>(1, max_keys)), stats_(stats) {}
 
 CacheStatus Cache::set(const std::string& key, const std::string& value) {
     if (key.empty()) {
         return CacheStatus::Error;
     }
+
+    std::lock_guard<std::mutex> lock(mutex_);
 
     auto it = entries_.find(key);
     if (it != entries_.end()) {
@@ -18,7 +22,7 @@ CacheStatus Cache::set(const std::string& key, const std::string& value) {
         touch(it);
     } else {
         if (entries_.size() >= max_keys_) {
-            cleanupExpired();
+            cleanupExpiredUnlocked();
         }
         lru_order_.push_front(key);
         entries_.emplace(key, Entry{value, std::nullopt, lru_order_.begin()});
@@ -33,6 +37,8 @@ CacheStatus Cache::set(const std::string& key, const std::string& value, int ttl
         return CacheStatus::Error;
     }
 
+    std::lock_guard<std::mutex> lock(mutex_);
+
     auto it = entries_.find(key);
     if (it != entries_.end()) {
         it->second.value = value;
@@ -40,7 +46,7 @@ CacheStatus Cache::set(const std::string& key, const std::string& value, int ttl
         touch(it);
     } else {
         if (entries_.size() >= max_keys_) {
-            cleanupExpired();
+            cleanupExpiredUnlocked();
         }
         lru_order_.push_front(key);
         entries_.emplace(key, Entry{value, expirationFromNow(ttl_seconds), lru_order_.begin()});
@@ -51,21 +57,35 @@ CacheStatus Cache::set(const std::string& key, const std::string& value, int ttl
 }
 
 std::optional<std::string> Cache::get(const std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     auto it = entries_.find(key);
     if (it == entries_.end()) {
+        if (stats_ != nullptr) {
+            stats_->recordGetMiss();
+        }
         return std::nullopt;
     }
 
     if (isExpired(it->second, Clock::now())) {
         eraseEntry(it);
+        if (stats_ != nullptr) {
+            stats_->recordExpiredKeysRemoved(1);
+            stats_->recordGetMiss();
+        }
         return std::nullopt;
     }
 
     touch(it);
+    if (stats_ != nullptr) {
+        stats_->recordGetHit();
+    }
     return it->second.value;
 }
 
 CacheStatus Cache::remove(const std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     auto it = entries_.find(key);
     if (it == entries_.end()) {
         return CacheStatus::NotFound;
@@ -80,6 +100,8 @@ CacheStatus Cache::expire(const std::string& key, int ttl_seconds) {
         return CacheStatus::Error;
     }
 
+    std::lock_guard<std::mutex> lock(mutex_);
+
     auto it = entries_.find(key);
     if (it == entries_.end()) {
         return CacheStatus::NotFound;
@@ -87,6 +109,9 @@ CacheStatus Cache::expire(const std::string& key, int ttl_seconds) {
 
     if (isExpired(it->second, Clock::now())) {
         eraseEntry(it);
+        if (stats_ != nullptr) {
+            stats_->recordExpiredKeysRemoved(1);
+        }
         return CacheStatus::NotFound;
     }
 
@@ -96,6 +121,8 @@ CacheStatus Cache::expire(const std::string& key, int ttl_seconds) {
 }
 
 std::optional<int> Cache::ttl(const std::string& key) {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     auto it = entries_.find(key);
     if (it == entries_.end()) {
         return std::nullopt;
@@ -104,6 +131,9 @@ std::optional<int> Cache::ttl(const std::string& key) {
     const auto now = Clock::now();
     if (isExpired(it->second, now)) {
         eraseEntry(it);
+        if (stats_ != nullptr) {
+            stats_->recordExpiredKeysRemoved(1);
+        }
         return std::nullopt;
     }
 
@@ -116,24 +146,29 @@ std::optional<int> Cache::ttl(const std::string& key) {
 }
 
 std::size_t Cache::cleanupExpired() {
-    const auto now = Clock::now();
-    std::size_t removed = 0;
-
-    for (auto it = entries_.begin(); it != entries_.end();) {
-        if (isExpired(it->second, now)) {
-            lru_order_.erase(it->second.lru_position);
-            it = entries_.erase(it);
-            ++removed;
-        } else {
-            ++it;
-        }
-    }
-
-    return removed;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return cleanupExpiredUnlocked();
 }
 
 std::size_t Cache::size() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return entries_.size();
+}
+
+std::size_t Cache::approximateMemoryUsage() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::size_t total = sizeof(*this);
+    total += entries_.bucket_count() * sizeof(void*);
+    total += lru_order_.size() * (sizeof(std::string) + (sizeof(void*) * 2));
+
+    for (const auto& item : entries_) {
+        total += sizeof(item);
+        total += item.first.capacity();
+        total += item.second.value.capacity();
+    }
+
+    return total;
 }
 
 bool Cache::isValidTtl(int ttl_seconds) {
@@ -165,8 +200,32 @@ void Cache::evictIfNeeded() {
         auto it = entries_.find(key_to_evict);
         if (it != entries_.end()) {
             eraseEntry(it);
+            if (stats_ != nullptr) {
+                stats_->recordEvictedKey();
+            }
         }
     }
+}
+
+std::size_t Cache::cleanupExpiredUnlocked() {
+    const auto now = Clock::now();
+    std::size_t removed = 0;
+
+    for (auto it = entries_.begin(); it != entries_.end();) {
+        if (isExpired(it->second, now)) {
+            lru_order_.erase(it->second.lru_position);
+            it = entries_.erase(it);
+            ++removed;
+        } else {
+            ++it;
+        }
+    }
+
+    if (removed > 0 && stats_ != nullptr) {
+        stats_->recordExpiredKeysRemoved(static_cast<std::uint64_t>(removed));
+    }
+
+    return removed;
 }
 
 } // namespace quickcache
