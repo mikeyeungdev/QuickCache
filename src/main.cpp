@@ -7,6 +7,7 @@
 #include "cache.h"
 #include "persistence.h"
 #include "server.h"
+#include "stats.h"
 
 namespace {
 
@@ -44,7 +45,8 @@ Options parseOptions(int argc, char** argv) {
 int main(int argc, char** argv) {
     try {
         const auto options = parseOptions(argc, argv);
-        quickcache::Cache cache(options.max_keys);
+        quickcache::RuntimeStats stats;
+        quickcache::Cache cache(options.max_keys, &stats);
         quickcache::AppendOnlyLog append_only_log(options.aof_path);
 
         if (!append_only_log.replay(cache)) {
@@ -54,7 +56,7 @@ int main(int argc, char** argv) {
             throw std::runtime_error("failed to open append-only log: " + append_only_log.path());
         }
 
-        quickcache::Server server(cache, &append_only_log, options.port);
+        quickcache::Server server(cache, stats, &append_only_log, options.port);
 
         server.run();
     } catch (const std::exception& error) {

@@ -15,6 +15,7 @@ add_library(quickcache_core
     src/parser.cpp
     src/persistence.cpp
     src/server.cpp
+    src/stats.cpp
 )
 
 target_include_directories(quickcache_core PUBLIC include)
@@ -42,3 +43,8 @@ add_executable(persistence_tests tests/persistence_test.cpp)
 target_link_libraries(persistence_tests PRIVATE quickcache_core)
 
 add_test(NAME persistence_tests COMMAND persistence_tests)
+
+add_executable(stats_tests tests/stats_test.cpp)
+target_link_libraries(stats_tests PRIVATE quickcache_core)
+
+add_test(NAME stats_tests COMMAND stats_tests)

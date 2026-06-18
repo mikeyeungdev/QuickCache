@@ -40,8 +40,8 @@ NativeSocket nativeSocket(SocketHandle socket) {
 
 } // namespace
 
-Server::Server(Cache& cache, AppendOnlyLog* append_only_log, int port)
-    : cache_(cache), append_only_log_(append_only_log), port_(port) {}
+Server::Server(Cache& cache, RuntimeStats& stats, AppendOnlyLog* append_only_log, int port)
+    : cache_(cache), stats_(stats), append_only_log_(append_only_log), port_(port) {}
 
 void Server::run() {
 #ifdef _WIN32
@@ -118,6 +118,8 @@ void Server::handleClient(SocketHandle client_socket) {
 }
 
 std::string Server::execute(const Command& command) {
+    stats_.recordCommand();
+
     if (command.type == CommandType::Invalid) {
         return "ERROR " + command.error;
     }
@@ -171,8 +173,17 @@ std::string Server::execute(const Command& command) {
         return "NOT_FOUND";
     }
     case CommandType::Stats: {
+        const auto snapshot = stats_.snapshot(cache_.size(), cache_.approximateMemoryUsage());
         std::ostringstream output;
-        output << "OK keys=" << cache_.size();
+        output << "OK"
+               << " total_keys=" << snapshot.total_keys
+               << " expired_keys_removed=" << snapshot.expired_keys_removed
+               << " evicted_keys=" << snapshot.evicted_keys
+               << " total_commands=" << snapshot.total_commands
+               << " get_hits=" << snapshot.get_hits
+               << " get_misses=" << snapshot.get_misses
+               << " uptime_seconds=" << snapshot.uptime_seconds
+               << " approximate_memory_bytes=" << snapshot.approximate_memory_bytes;
         return output.str();
     }
     case CommandType::Invalid:

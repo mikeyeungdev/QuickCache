@@ -7,6 +7,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "stats.h"
+
 namespace quickcache {
 
 enum class CacheStatus {
@@ -17,7 +19,7 @@ enum class CacheStatus {
 
 class Cache {
 public:
-    explicit Cache(std::size_t max_keys = 1000);
+    explicit Cache(std::size_t max_keys = 1000, RuntimeStats* stats = nullptr);
 
     CacheStatus set(const std::string& key, const std::string& value);
     CacheStatus set(const std::string& key, const std::string& value, int ttl_seconds);
@@ -27,6 +29,7 @@ public:
     std::optional<int> ttl(const std::string& key);
     std::size_t cleanupExpired();
     std::size_t size() const;
+    std::size_t approximateMemoryUsage() const;
 
 private:
     using Clock = std::chrono::steady_clock;
@@ -48,6 +51,7 @@ private:
     std::size_t max_keys_;
     std::list<std::string> lru_order_;
     std::unordered_map<std::string, Entry> entries_;
+    RuntimeStats* stats_;
     mutable std::mutex mutex_;
 };
 

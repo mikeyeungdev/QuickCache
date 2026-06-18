@@ -5,7 +5,8 @@
 
 namespace quickcache {
 
-Cache::Cache(std::size_t max_keys) : max_keys_(std::max<std::size_t>(1, max_keys)) {}
+Cache::Cache(std::size_t max_keys, RuntimeStats* stats)
+    : max_keys_(std::max<std::size_t>(1, max_keys)), stats_(stats) {}
 
 CacheStatus Cache::set(const std::string& key, const std::string& value) {
     if (key.empty()) {
@@ -60,15 +61,25 @@ std::optional<std::string> Cache::get(const std::string& key) {
 
     auto it = entries_.find(key);
     if (it == entries_.end()) {
+        if (stats_ != nullptr) {
+            stats_->recordGetMiss();
+        }
         return std::nullopt;
     }
 
     if (isExpired(it->second, Clock::now())) {
         eraseEntry(it);
+        if (stats_ != nullptr) {
+            stats_->recordExpiredKeysRemoved(1);
+            stats_->recordGetMiss();
+        }
         return std::nullopt;
     }
 
     touch(it);
+    if (stats_ != nullptr) {
+        stats_->recordGetHit();
+    }
     return it->second.value;
 }
 
@@ -98,6 +109,9 @@ CacheStatus Cache::expire(const std::string& key, int ttl_seconds) {
 
     if (isExpired(it->second, Clock::now())) {
         eraseEntry(it);
+        if (stats_ != nullptr) {
+            stats_->recordExpiredKeysRemoved(1);
+        }
         return CacheStatus::NotFound;
     }
 
@@ -117,6 +131,9 @@ std::optional<int> Cache::ttl(const std::string& key) {
     const auto now = Clock::now();
     if (isExpired(it->second, now)) {
         eraseEntry(it);
+        if (stats_ != nullptr) {
+            stats_->recordExpiredKeysRemoved(1);
+        }
         return std::nullopt;
     }
 
@@ -136,6 +153,22 @@ std::size_t Cache::cleanupExpired() {
 std::size_t Cache::size() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return entries_.size();
+}
+
+std::size_t Cache::approximateMemoryUsage() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::size_t total = sizeof(*this);
+    total += entries_.bucket_count() * sizeof(void*);
+    total += lru_order_.size() * (sizeof(std::string) + (sizeof(void*) * 2));
+
+    for (const auto& item : entries_) {
+        total += sizeof(item);
+        total += item.first.capacity();
+        total += item.second.value.capacity();
+    }
+
+    return total;
 }
 
 bool Cache::isValidTtl(int ttl_seconds) {
@@ -167,6 +200,9 @@ void Cache::evictIfNeeded() {
         auto it = entries_.find(key_to_evict);
         if (it != entries_.end()) {
             eraseEntry(it);
+            if (stats_ != nullptr) {
+                stats_->recordEvictedKey();
+            }
         }
     }
 }
@@ -183,6 +219,10 @@ std::size_t Cache::cleanupExpiredUnlocked() {
         } else {
             ++it;
         }
+    }
+
+    if (removed > 0 && stats_ != nullptr) {
+        stats_->recordExpiredKeysRemoved(static_cast<std::uint64_t>(removed));
     }
 
     return removed;

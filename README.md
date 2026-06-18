@@ -146,6 +146,7 @@ PING
 SET code:user123 849201 EX 300
 GET code:user123
 TTL code:user123
+STATS
 DELETE code:user123
 GET code:user123
 ```
@@ -157,9 +158,30 @@ PONG
 OK
 VALUE 849201
 TTL 299
+OK total_keys=1 expired_keys_removed=0 evicted_keys=0 total_commands=5 get_hits=1 get_misses=0 uptime_seconds=12 approximate_memory_bytes=512
 OK
 NOT_FOUND
 ```
+
+## Runtime Stats
+
+`STATS` returns basic runtime metrics:
+
+```text
+STATS
+OK total_keys=1 expired_keys_removed=0 evicted_keys=0 total_commands=5 get_hits=1 get_misses=0 uptime_seconds=12 approximate_memory_bytes=512
+```
+
+Fields:
+
+- `total_keys`: number of keys currently stored
+- `expired_keys_removed`: expired keys removed lazily or by cleanup
+- `evicted_keys`: keys removed by LRU eviction
+- `total_commands`: commands processed by the TCP server, including `STATS`
+- `get_hits`: successful `GET` lookups
+- `get_misses`: failed `GET` lookups, including expired keys
+- `uptime_seconds`: seconds since this server process started
+- `approximate_memory_bytes`: rough in-memory estimate for cache metadata, keys, and values
 
 ## Concurrent Clients
 
