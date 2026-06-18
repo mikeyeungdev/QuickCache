@@ -1,77 +1,76 @@
 # QuickCache
 
-QuickCache is a planned Redis-style in-memory cache written in C++. It will provide fast retrieval for short-lived backend data that needs to be available immediately and expire when it is no longer useful.
+Backend systems often need fast access to short-lived data such as verification codes, ticket queue positions, and inventory holds. Storing that data in a primary database can add unnecessary latency and cleanup work, especially when the data only needs to live for seconds or minutes.
 
-Short-lived backend data often lives on critical user paths. Ticket queue positions, verification codes, and inventory holds all need low-latency reads and writes because users are waiting on the result in real time. Keeping this data in memory avoids slower database round trips for data that does not need permanent storage.
+QuickCache is a Redis-style in-memory cache written in C++. It exposes a newline-delimited TCP protocol, stores string keys and values, supports TTL expiration, evicts least recently used keys when full, and can rebuild cache state from an append-only log after restart.
 
-## Example Use Cases
+## Demo Use Cases
 
-- Ticket queue positions, such as `queue:user123 -> 482`
-- Verification codes, such as `code:user123 -> 849201`
-- Inventory holds, such as `hold:item456:user123 -> reserved`
+- **Ticket queue positions**: keep a user's current place in a high-traffic queue.
+  `SET queue:user123 482 EX 1800`
+- **Verification codes**: store short-lived login or account verification codes.
+  `SET code:user123 849201 EX 300`
+- **Inventory holds**: reserve an item briefly while a user checks out.
+  `SET hold:item456:user123 reserved EX 600`
 
-## Current Behavior
-
-The local cache engine currently supports:
-
-- `set(key, value)` for string keys and string values
-- `set(key, value, ttl_seconds)` for values that should expire automatically
-- `get(key)` returning the stored value or no value when the key is missing
-- `remove(key)` returning `Ok` when a key was deleted and `NotFound` when it was absent
-- `expire(key, ttl_seconds)` for updating a key's expiration
-- `ttl(key)` for reading the remaining lifetime
-- `cleanupExpired()` for removing expired keys in a batch
-- LRU eviction when the cache reaches its max key limit
-
-Example behavior covered by tests:
+## Architecture
 
 ```text
-SET code:user123 849201
+Client
+  |
+  v
+TCP Server
+  |
+  v
+Command Parser
+  |
+  v
+Cache Engine
+  |
+  +--> TTL Expiration
+  +--> LRU Eviction
+  +--> Append-Only Persistence
+```
+
+## Features
+
+- TCP server with one thread per connected client
+- Thread-safe cache operations using `std::mutex`
+- String key/value storage
+- TTL expiration with lazy cleanup
+- LRU eviction with a configurable max key limit
+- Append-only persistence and crash recovery
+- Runtime `STATS` metrics
+- Python benchmark client for realistic workloads
+
+## Commands
+
+Commands are newline-delimited text.
+
+```text
+PING
+PONG
+
+SET code:user123 849201 EX 300
+OK
+
 GET code:user123
+VALUE 849201
+
+TTL code:user123
+TTL 299
+
 DELETE code:user123
-```
-
-QuickCache now exposes these commands over a newline-delimited TCP protocol.
-
-TTL example:
-
-```text
-SET code:user123 849201 EX 3
-GET code:user123
-# returns 849201
-
-# wait 4 seconds
+OK
 
 GET code:user123
-# returns NOT_FOUND
+NOT_FOUND
+
+STATS
+OK total_keys=1 expired_keys_removed=0 evicted_keys=0 total_commands=7 get_hits=1 get_misses=1 uptime_seconds=12 approximate_memory_bytes=512
 ```
 
-LRU eviction example:
-
-```text
-# max keys = 2
-SET a 1
-SET b 2
-GET a
-SET c 3
-
-# a and c remain because a was recently read
-# b is evicted as the least recently used key
-```
-
-## Planned Commands
-
-- `PING`
-- `SET`
-- `GET`
-- `DELETE`
-- `EXPIRE`
-- `TTL`
-- `STATS`
-
-## Supported Command Syntax
-
-QuickCache now includes a local parser for newline-delimited text commands. The parser turns command text into structured command objects; it does not execute commands or use networking yet.
+Supported syntax:
 
 ```text
 PING
@@ -84,7 +83,7 @@ TTL key
 STATS
 ```
 
-Malformed commands return parse errors instead of crashing. Examples include missing keys, invalid TTL values, unsupported `SET` options, extra arguments, and unknown commands.
+Malformed commands return `ERROR <message>` instead of crashing.
 
 ## Build
 
@@ -96,6 +95,24 @@ cd build
 cmake ..
 cmake --build .
 ```
+
+On Windows with Visual Studio generators, the executable is usually under `Debug/`.
+
+## Run
+
+Linux/macOS:
+
+```bash
+./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
+```
+
+Windows:
+
+```powershell
+.\Debug\quickcache.exe --port 6379 --max-keys 1000 --aof quickcache.aof
+```
+
+If `--aof` is omitted, QuickCache uses `quickcache.aof` by default. To start fresh, stop the server and delete the AOF file or use a new filename.
 
 ## Test
 
@@ -111,32 +128,18 @@ On Windows with Visual Studio generators:
 ctest -C Debug --output-on-failure
 ```
 
-## Run
+## TCP Demo
 
-From the build directory:
-
-```bash
-./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
-```
-
-On Windows with multi-configuration generators, run:
-
-```powershell
-.\Debug\quickcache.exe --port 6379 --max-keys 1000 --aof quickcache.aof
-```
-
-## TCP Usage
-
-Start the server:
-
-```bash
-./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
-```
-
-Connect with netcat:
+Start the server, then connect with netcat or Ncat:
 
 ```bash
 nc localhost 6379
+```
+
+Windows with Ncat:
+
+```powershell
+& "C:\Program Files (x86)\Nmap\ncat.exe" localhost 6379
 ```
 
 Try:
@@ -145,109 +148,13 @@ Try:
 PING
 SET code:user123 849201 EX 300
 GET code:user123
-TTL code:user123
 STATS
 DELETE code:user123
-GET code:user123
 ```
-
-Example responses:
-
-```text
-PONG
-OK
-VALUE 849201
-TTL 299
-OK total_keys=1 expired_keys_removed=0 evicted_keys=0 total_commands=5 get_hits=1 get_misses=0 uptime_seconds=12 approximate_memory_bytes=512
-OK
-NOT_FOUND
-```
-
-## Runtime Stats
-
-`STATS` returns basic runtime metrics:
-
-```text
-STATS
-OK total_keys=1 expired_keys_removed=0 evicted_keys=0 total_commands=5 get_hits=1 get_misses=0 uptime_seconds=12 approximate_memory_bytes=512
-```
-
-Fields:
-
-- `total_keys`: number of keys currently stored
-- `expired_keys_removed`: expired keys removed lazily or by cleanup
-- `evicted_keys`: keys removed by LRU eviction
-- `total_commands`: commands processed by the TCP server, including `STATS`
-- `get_hits`: successful `GET` lookups
-- `get_misses`: failed `GET` lookups, including expired keys
-- `uptime_seconds`: seconds since this server process started
-- `approximate_memory_bytes`: rough in-memory estimate for cache metadata, keys, and values
-
-## Concurrent Clients
-
-The TCP server handles multiple clients with one thread per connected client. Cache operations are protected by an internal mutex so shared state remains safe across concurrent `GET`, `SET`, `DELETE`, `EXPIRE`, `TTL`, and `STATS` calls.
-
-Run the concurrency smoke client while the server is running:
-
-```bash
-python benchmarks/concurrency_client.py --clients 8 --operations 100
-```
-
-On Windows, use the Python launcher if needed:
-
-```powershell
-py .\benchmarks\concurrency_client.py --clients 8 --operations 100
-```
-
-## Benchmarks
-
-Start QuickCache first:
-
-```bash
-./quickcache --port 6379 --max-keys 100000 --aof benchmark.aof
-```
-
-Then run a benchmark workload:
-
-```bash
-python3 benchmarks/benchmark_client.py --host localhost --port 6379 --clients 50 --requests 10000 --workload verification_codes
-```
-
-On Windows:
-
-```powershell
-python .\benchmarks\benchmark_client.py --host localhost --port 6379 --clients 50 --requests 10000 --workload verification_codes
-```
-
-Available workloads:
-
-- `verification_codes`: alternating `SET code:userId value EX 300` and `GET code:userId`
-- `ticket_queue`: repeated `SET queue:userId position EX 1800` and `GET queue:userId`
-- `inventory_holds`: `SET hold:itemId:userId reserved EX 600`, `GET`, and `DELETE`
-
-The benchmark reports total requests, successful requests, errors, requests per second, and p50/p95/p99 latency.
 
 ## Append-Only Persistence
 
-QuickCache can append successful write commands to an append-only log file:
-
-```bash
-./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
-```
-
-If `--aof` is omitted, QuickCache uses `quickcache.aof` by default:
-
-```bash
-./quickcache
-```
-
-is equivalent to:
-
-```bash
-./quickcache --port 6379 --max-keys 1000 --aof quickcache.aof
-```
-
-The server writes these operations to the log:
+Successful write commands are appended to the AOF:
 
 ```text
 SET key value
@@ -256,24 +163,67 @@ DELETE key
 EXPIRE key seconds
 ```
 
-On startup, QuickCache replays the log before accepting clients, rebuilding in-memory state after a crash or restart. Replay does not re-append commands, so recovery does not duplicate the log.
+On startup, QuickCache replays the log before accepting clients. Replay does not re-append commands, so recovery does not duplicate the log.
 
-TTL-bearing writes are stored with absolute expiration timestamps internally, such as `EXAT <epoch_seconds>` and `EXPIREAT <epoch_seconds>`. This avoids resetting TTL on restart. For example, a verification code that expired while the server was offline is skipped during replay instead of coming back with a fresh lifetime.
+TTL-bearing writes are stored internally with absolute expiration timestamps, such as `EXAT <epoch_seconds>` and `EXPIREAT <epoch_seconds>`. This prevents a key from receiving a fresh TTL after restart. If a verification code expires while the server is offline, replay skips it.
 
-To start with an empty cache, stop the server and either delete the AOF file or use a new filename:
+## Benchmarks
+
+Start QuickCache:
 
 ```bash
-rm quickcache.aof
-./quickcache --aof fresh-session.aof
+./quickcache --port 6379 --max-keys 100000 --aof benchmark.aof
 ```
 
-On Windows:
+Run a workload:
+
+```bash
+python3 benchmarks/benchmark_client.py --host localhost --port 6379 --clients 50 --requests 10000 --workload verification_codes
+```
+
+Windows:
 
 ```powershell
-Remove-Item .\quickcache.aof
-.\Debug\quickcache.exe --aof fresh-session.aof
+python .\benchmarks\benchmark_client.py --host localhost --port 6379 --clients 50 --requests 10000 --workload verification_codes
 ```
 
-## Current Status
+Workloads:
 
-The core in-memory cache engine, command parser, TTL expiration, LRU eviction, multithreaded TCP server, and append-only persistence are implemented. Deeper benchmarks are planned for later tasks.
+- `verification_codes`: alternating `SET code:userId value EX 300` and `GET code:userId`
+- `ticket_queue`: repeated `SET queue:userId position EX 1800` and `GET queue:userId`
+- `inventory_holds`: `SET hold:itemId:userId reserved EX 600`, `GET`, and `DELETE`
+
+The benchmark reports total requests, successful requests, errors, requests per second, and p50/p95/p99 latency.
+
+## Benchmark Results
+
+Sample local smoke-test results on a Windows development machine:
+
+```text
+workload: verification_codes
+clients: 4
+total_requests: 200
+successful_requests: 200
+errors: 0
+requests_per_second: 11551.75
+latency_p50_ms: 0.122
+latency_p95_ms: 0.241
+latency_p99_ms: 0.881
+```
+
+These are small local smoke-test numbers, not a formal production benchmark. The benchmark client is included so larger runs can be repeated consistently.
+
+## Design Tradeoffs
+
+- **In-memory speed vs durability**: reads and writes are fast because data lives in memory, but durability depends on replaying the append-only log after restart.
+- **Append-only recovery vs full database storage**: AOF replay is simple and transparent, but the log can grow over time and does not replace a full database for permanent records.
+- **Simple thread model vs production-grade event loop**: one thread per client is easy to reason about and demonstrates concurrency, but a production cache would likely use an event loop, async I/O, or a bounded worker pool.
+
+## Future Improvements
+
+- Authentication
+- Replication
+- Clustering
+- Snapshots and snapshot compaction
+- Richer data types
+- Bounded thread pool or event-driven networking
