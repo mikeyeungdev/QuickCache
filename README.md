@@ -199,6 +199,34 @@ On Windows, use the Python launcher if needed:
 py .\benchmarks\concurrency_client.py --clients 8 --operations 100
 ```
 
+## Benchmarks
+
+Start QuickCache first:
+
+```bash
+./quickcache --port 6379 --max-keys 100000 --aof benchmark.aof
+```
+
+Then run a benchmark workload:
+
+```bash
+python3 benchmarks/benchmark_client.py --host localhost --port 6379 --clients 50 --requests 10000 --workload verification_codes
+```
+
+On Windows:
+
+```powershell
+python .\benchmarks\benchmark_client.py --host localhost --port 6379 --clients 50 --requests 10000 --workload verification_codes
+```
+
+Available workloads:
+
+- `verification_codes`: alternating `SET code:userId value EX 300` and `GET code:userId`
+- `ticket_queue`: repeated `SET queue:userId position EX 1800` and `GET queue:userId`
+- `inventory_holds`: `SET hold:itemId:userId reserved EX 600`, `GET`, and `DELETE`
+
+The benchmark reports total requests, successful requests, errors, requests per second, and p50/p95/p99 latency.
+
 ## Append-Only Persistence
 
 QuickCache can append successful write commands to an append-only log file:
