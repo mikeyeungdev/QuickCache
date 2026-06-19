@@ -27,6 +27,11 @@ endif()
 add_executable(quickcache src/main.cpp)
 target_link_libraries(quickcache PRIVATE quickcache_core)
 
+add_executable(benchmark_client benchmarks/benchmark_client.cpp)
+if(WIN32)
+    target_link_libraries(benchmark_client PRIVATE ws2_32)
+endif()
+
 enable_testing()
 
 add_executable(cache_tests tests/cache_test.cpp)
