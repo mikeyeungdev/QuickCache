@@ -41,7 +41,7 @@ Cache Engine
 - LRU eviction with a configurable max key limit
 - Append-only persistence and crash recovery
 - Runtime `STATS` metrics
-- Python benchmark client for realistic workloads
+- Python and C++ benchmark clients for realistic workloads
 
 ## Commands
 
@@ -96,7 +96,7 @@ cmake ..
 cmake --build .
 ```
 
-On Windows with Visual Studio generators, the executable is usually under `Debug/`.
+On Windows with Visual Studio generators, the executables are usually under `Debug/` or `Release/`.
 
 ## Run
 
@@ -187,6 +187,12 @@ Windows:
 python .\benchmarks\benchmark_client.py --host localhost --port 6379 --clients 50 --requests 10000 --workload verification_codes
 ```
 
+For higher-throughput Release benchmarks, build the C++ benchmark target and run:
+
+```powershell
+.\Release\benchmark_client.exe --host 127.0.0.1 --port 6379 --clients 200 --requests 200000 --pipeline 1 --workload verification_codes
+```
+
 Workloads:
 
 - `verification_codes`: alternating `SET code:userId value EX 300` and `GET code:userId`
@@ -197,21 +203,22 @@ The benchmark reports total requests, successful requests, errors, requests per 
 
 ## Benchmark Results
 
-Sample local smoke-test results on a Windows development machine:
+Sample local Release result on a Windows development machine, using the C++ benchmark client with AOF persistence enabled:
 
 ```text
 workload: verification_codes
-clients: 4
-total_requests: 200
-successful_requests: 200
+clients: 200
+pipeline: 1
+total_requests: 200000
+successful_requests: 200000
 errors: 0
-requests_per_second: 11551.75
-latency_p50_ms: 0.122
-latency_p95_ms: 0.241
-latency_p99_ms: 0.881
+requests_per_second: 123779
+latency_p50_ms: 0.079
+latency_p95_ms: 6.183
+latency_p99_ms: 9.743
 ```
 
-These are small local smoke-test numbers, not a formal production benchmark. The benchmark client is included so larger runs can be repeated consistently.
+These are local benchmark numbers, not a formal production benchmark. Results depend on machine, build mode, client implementation, and OS networking behavior.
 
 ## Design Tradeoffs
 

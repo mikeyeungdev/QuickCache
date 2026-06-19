@@ -6,6 +6,7 @@ import statistics
 import threading
 import time
 from dataclasses import dataclass
+from collections import deque
 
 
 @dataclass
@@ -17,6 +18,12 @@ class BenchmarkResult:
 
 def command_for(workload, request_id):
     user_id = request_id % 100_000
+
+    if workload == "ping":
+        return "PING"
+
+    if workload == "get_missing":
+        return f"GET missing:user{user_id}"
 
     if workload == "verification_codes":
         if request_id % 2 == 0:
@@ -56,24 +63,41 @@ def is_success(response):
     )
 
 
-def run_worker(host, port, workload, start_id, count):
+def run_worker(host, port, workload, start_id, count, pipeline):
     latencies = []
     successful = 0
     errors = 0
 
     try:
         with socket.create_connection((host, port), timeout=10) as sock:
-            sock_file = sock.makefile("rw", encoding="utf-8", newline="\n")
+            pending_starts = deque()
+            receive_buffer = ""
+            sent = 0
+            received = 0
 
-            for offset in range(count):
-                command = command_for(workload, start_id + offset)
-                started = time.perf_counter()
-                sock_file.write(command + "\n")
-                sock_file.flush()
-                response = sock_file.readline().strip()
-                elapsed_ms = (time.perf_counter() - started) * 1000
+            while received < count:
+                outbound = []
+                while sent < count and len(pending_starts) < pipeline:
+                    command = command_for(workload, start_id + sent)
+                    pending_starts.append(time.perf_counter())
+                    outbound.append(command + "\n")
+                    sent += 1
+
+                if outbound:
+                    sock.sendall("".join(outbound).encode("utf-8"))
+
+                while "\n" not in receive_buffer:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        raise ConnectionError("server closed connection")
+                    receive_buffer += chunk.decode("utf-8")
+
+                line, receive_buffer = receive_buffer.split("\n", 1)
+                response = line.strip()
+                elapsed_ms = (time.perf_counter() - pending_starts.popleft()) * 1000
 
                 latencies.append(elapsed_ms)
+                received += 1
                 if is_success(response):
                     successful += 1
                 else:
@@ -98,15 +122,16 @@ def main():
     parser.add_argument("--port", type=int, default=6379)
     parser.add_argument("--clients", type=int, default=50)
     parser.add_argument("--requests", type=int, default=10_000)
+    parser.add_argument("--pipeline", type=int, default=1)
     parser.add_argument(
         "--workload",
-        choices=["verification_codes", "ticket_queue", "inventory_holds"],
+        choices=["ping", "get_missing", "verification_codes", "ticket_queue", "inventory_holds"],
         default="verification_codes",
     )
     args = parser.parse_args()
 
-    if args.clients <= 0 or args.requests <= 0:
-        raise SystemExit("--clients and --requests must be positive")
+    if args.clients <= 0 or args.requests <= 0 or args.pipeline <= 0:
+        raise SystemExit("--clients, --requests, and --pipeline must be positive")
 
     requests_per_client = args.requests // args.clients
     remainder = args.requests % args.clients
@@ -117,7 +142,7 @@ def main():
     started = time.perf_counter()
 
     def thread_main(client_index, request_start, request_count):
-        result = run_worker(args.host, args.port, args.workload, request_start, request_count)
+        result = run_worker(args.host, args.port, args.workload, request_start, request_count, args.pipeline)
         with lock:
             results.append(result)
 
@@ -151,6 +176,7 @@ def main():
     print(f"host: {args.host}")
     print(f"port: {args.port}")
     print(f"clients: {args.clients}")
+    print(f"pipeline: {args.pipeline}")
     print(f"total_requests: {args.requests}")
     print(f"successful_requests: {successful_requests}")
     print(f"errors: {errors}")

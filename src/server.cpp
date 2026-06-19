@@ -69,7 +69,7 @@ void Server::run() {
         throw std::runtime_error("failed to bind server socket");
     }
 
-    if (listen(nativeSocket(server_socket), 8) < 0) {
+    if (listen(nativeSocket(server_socket), SOMAXCONN) < 0) {
         closeSocket(server_socket);
         throw std::runtime_error("failed to listen on server socket");
     }
